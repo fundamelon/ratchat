@@ -1,4 +1,12 @@
 #include <Arduino.h>
+#include <PDM.h>
+#include <pdm2pcm.h>
+#include <I2S.h>
+
+LED_BUILTIN
+
+#define PCM_BUFLEN    (AUDIO_IN_FREQ/AUDIO_IN_DECIMATOR_FACTOR) /* AUDIO_IN_FREQ = 1280, AUDIO_IN_DECIMATOR_FACTOR = 80  so PCM_BUFLEN = 1280/80 = 16*/
+int16_t pcmSamples[PCM_BUFLEN*N_MS_PER_INTERRUPT];
 // TFT_eSPI library demo, principally for STM32F processors with DMA:
 // https://en.wikipedia.org/wiki/Direct_memory_access
 
@@ -135,6 +143,7 @@ bool spinZ = true;
 // Min and max of cube edges, "int" type used for compatibility with original sketch min() function
 int xmin,ymin,xmax,ymax;
 
+uint16_t sampleBuffer[(((AUDIO_IN_FREQ / 8) * MAX_AUDIO_IN_CHANNEL_NBR_PER_IF * N_MS_PER_INTERRUPT)/2)] = {0};
 
 /**
   Detected visible triangles. If calculated area > 0 the triangle
@@ -250,128 +259,43 @@ uint32_t computePrimeNumbers(int32_t n) {
   return p; // Biggest
 }
 
+extern "C" void parse()
+{
+  for (uint32_t i = 0; i < N_MS_PER_INTERRUPT; i++)
+  {
+    pdm2pcm((uint8_t *) & (sampleBuffer[i * ((BLOCK_SIZE/8)/2)]), &pcmSamples[i * PCM_BUFLEN], BLOCK_SIZE);
+    Serial.println(sampleBuffer[i * ((BLOCK_SIZE/8)/2)]);
+  }
+}
+
+I2SClass I2S(SPI3,PC1,PA4,PC10,PC7);
+
 /////////////////////////////////////////////////////////// setup ///////////////////////////////////////////////////
 void setup() {
 
   Serial.begin(115200);
 
-  tft.init();
+  Serial.println(PDM.Begin());
 
-  tft.fillScreen(TFT_BLACK);
+  /*if(PDM.Begin() != PDM_OK){
+    Serial.println("Failed to start PDM!\n");
+  }
+  else{
+    Serial.println("PDM correctly initialized!\n");
+  }
 
-  xpos = 0;
-  ypos = (tft.height() - IHEIGHT) / 2;
+  PDM.onReceive(parse);
 
-  // Define cprite colour depth
-  spr[0].setColorDepth(COLOR_DEPTH);
-  spr[1].setColorDepth(COLOR_DEPTH);
+  pdm2pcm_init(BYTE_LEFT_MSB, PDM_ENDIANNESS_BE, SINC4);
 
-  // Create the 2 sprites
-  sprPtr[0] = (uint16_t*)spr[0].createSprite(IWIDTH, IHEIGHT);
-  sprPtr[1] = (uint16_t*)spr[1].createSprite(IWIDTH, IHEIGHT);
-
-  // Define text datum and text colour for Sprites
-  spr[0].setTextColor(TFT_BLACK);
-  spr[0].setTextDatum(MC_DATUM);
-  spr[1].setTextColor(TFT_BLACK);
-  spr[1].setTextDatum(MC_DATUM);
-
-#ifdef USE_DMA_TO_TFT
-  // DMA - should work with ESP32, STM32F2xx/F4xx/F7xx processors
-  // NOTE: >>>>>> DMA IS FOR SPI DISPLAYS ONLY <<<<<<
-  tft.initDMA(); // Initialise the DMA engine (tested with STM32F446 and STM32F767)
-#endif
-
-  // Animation control timer
-  startMillis = millis();
+  PDM.Record(sampleBuffer);
+  */
 
 }
 
 /////////////////////////////////////////////////////////// loop ///////////////////////////////////////////////////
 void loop() {
-  uint32_t updateTime = 0;       // time for next update
-  bool bounce = false;
-  int wait = 0; //random (20);
-
-  // Random movement direction
-  int dx = 1; if (random(2)) dx = -1;
-  int dy = 1; if (random(2)) dy = -1;
-
-  // Grab exclusive use of the SPI bus
-  tft.startWrite();
-
-  // Loop forever
-  while (1) {
-
-    // Pull it back onto screen if it wanders off
-    if (xpos < -xmin) {
-      dx = 1;
-      bounce = true;
-    }
-    if (xpos >= tft.width() - xmax) {
-      dx = -1;
-      bounce = true;
-    }
-    if (ypos < -ymin) {
-      dy = 1;
-      bounce = true;
-    }
-    if (ypos >= tft.height() - ymax) {
-      dy = -1;
-      bounce = true;
-    }
-
-    if (bounce) {
-      // Randomise spin
-      if (random(2)) spinX = true;
-      else spinX = false;
-      if (random(2)) spinY = true;
-      else spinY = false;
-      if (random(2)) spinZ = true;
-      else spinZ = false;
-      bounce = false;
-      //wait = random (20);
-    }
-
-    if (updateTime <= millis())
-    {
-      // Use time delay so sprtie does not move fast when not all on screen
-      updateTime = millis() + wait;
-      xmin = IWIDTH / 2; xmax = IWIDTH / 2; ymin = IHEIGHT / 2; ymax = IHEIGHT / 2;
-      drawCube();
-
-#ifdef USE_DMA_TO_TFT
-      if (tft.dmaBusy()) prime_max++; // Increase processing load until just not busy
-      tft.pushImageDMA(xpos, ypos, IWIDTH, IHEIGHT, sprPtr[sprSel]);
-      sprSel = !sprSel;
-#else
-  #ifdef PRIME_NUMBER_PROCESSOR_LOAD
-      prime_max = PRIME_NUMBER_PROCESSOR_LOAD;
-  #endif
-      spr[sprSel].pushSprite(xpos, ypos); // Blocking write (no DMA) 115fps
-#endif
-
-      counter++;
-      // only calculate the fps every <interval> iterations.
-      if (counter % interval == 0) {
-        long millisSinceUpdate = millis() - startMillis;
-        fps = String((int)(interval * 1000.0 / (millisSinceUpdate))) + " fps";
-        Serial.println(fps);
-        startMillis = millis();
-      }
-#ifdef PRIME_NUMBER_PROCESSOR_LOAD
-      // Add a processor task
-      uint32_t pr = computePrimeNumbers(prime_max);
-      Serial.print("Biggest = "); Serial.println(pr);
-#endif
-      // Change coord for next loop
-      xpos += dx;
-      ypos += dy;
-    }
-  } // End of forever loop
-
-  // Release exclusive use of SPI bus ( here as a reminder... forever loop prevents execution)
-  tft.endWrite();
+  PDM.Record(sampleBuffer);
 }
 
 /*
