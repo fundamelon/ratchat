@@ -4,10 +4,16 @@
 #include "arm_fir_decimate_init_q15.c"
 #include "arm_fir_decimate_q15.c"
 
+#include <stdio.h>
+#include <stdint.h>
+#include <stdlib.h>
+#include <string.h>
+
 I2SClass I2S(SPI2, PB15 /*SD-DIN*/ , PB12 /*WS-LRC*/, PB13 /*CK-SCLK*/);
 
-#define SAMPLINGFREQUENCY 16000
-#define NUMBEROFSAMPLES   64 // 1 seconds
+#define SAMPLINGFREQUENCY 96000
+//program multiplies this by 32
+#define NUMBEROFSAMPLES   64 //64*8
 #define N_TAPS_FIR_DEC 37  // SINC4 DEC 10
 
 #define BYTE_LEFT_MSB 0
@@ -16,13 +22,14 @@ I2SClass I2S(SPI2, PB15 /*SD-DIN*/ , PB12 /*WS-LRC*/, PB13 /*CK-SCLK*/);
 #define PDM_ENDIANNESS_LE 1
 #define SINC3 0
 #define SINC4 1
-#define BLOCK_SIZE NUMBEROFSAMPLES*16
+#define BLOCK_SIZE NUMBEROFSAMPLES
 #define N_DATA_CIC_DEC (BLOCK_SIZE/DEC_CIC_FACTOR)
-#define DEC_OUT_FACTOR 10
+#define DEC_OUT_FACTOR 8 //prev was 10
 #define FIR_DELAY 4
 #define DEC_CIC_FACTOR 8
 
 int16_t Buffer[NUMBEROFSAMPLES];
+uint8_t pdmIn[NUMBEROFSAMPLES*2];
 int16_t pcmOut[NUMBEROFSAMPLES];
 
 static int16_t fir_taps[7][N_TAPS_FIR_DEC] = {{0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0},
@@ -50,10 +57,8 @@ int pdm2pcm_init(int bit_order, int endianess, int sinc){
   return ret_val;
 }
 
-int pdm2pcm(int16_t *data_in, int16_t *data_out, int16_t size)
+int pdm2pcm(uint8_t *data_in, int16_t *data_out, int16_t size)
 {
-  int DEBUGCNT = 0;
-
   int16_t k, cic_dec_l, out_dec_l, size_dec;
 
   cic_dec_l = size / DEC_CIC_FACTOR;
@@ -62,12 +67,9 @@ int pdm2pcm(int16_t *data_in, int16_t *data_out, int16_t size)
 
   size_dec = size >> 3;
   LuT_Filter(data_in, data_in_cic_decim, size_dec);
-
   // ****** Second cic-decim, high-pass iir and Group-delay compensation **********************//
   arm_fir_decimate_q15(&fir_decim_S, data_in_cic_decim, data_out_decim, (BLOCK_SIZE / DEC_CIC_FACTOR));
   //arm_fir_decimate_q15(&fir_decim_S, data_in, data_out_decim, (BLOCK_SIZE / DEC_CIC_FACTOR));
-  DEBUGCNT++;
-  Serial.println(DEBUGCNT);
 
   //iir_hp(data_out_decim, out_dec_l);
 
@@ -132,7 +134,7 @@ int LuT_Filter_init(int bitOrder, int endian, int sinc)
   return 0;
 }
 
-void LuT_Filter(int16_t *PntIn, int16_t *PntOut, uint16_t LBlock)
+void LuT_Filter(uint8_t *PntIn, int16_t *PntOut, uint16_t LBlock)
 {
   int16_t h;
   register uint8_t *PntAddr1, *PntAddr2, *PntAddr3, *PntAddr4;
@@ -193,17 +195,27 @@ void setup()
   Serial.println("Init OK");
 }
 
+String data = "";
+
 void loop()
 {
   if(I2S.dataReady = true){
-    for(int i = 0; i < NUMBEROFSAMPLES; i++){
-      Serial.print(pdm2pcm(Buffer, pcmOut, NUMBEROFSAMPLES));
-      Serial.print(Buffer[i]);
-      Buffer[i] = 0;
-      
+    for(int i = 0; i<NUMBEROFSAMPLES; i++) {
+      pdmIn[i*2] = Buffer[i];
+      pdmIn[i*2+1] = Buffer[i] >> 8;
     }
-    Serial.println();
-    delay(100);
+    pdm2pcm(pdmIn, pcmOut, NUMBEROFSAMPLES*2);
+    for(int i = 0; i < NUMBEROFSAMPLES/(NUMBEROFSAMPLES / DEC_CIC_FACTOR); i++){
+      //Serial.print(Buffer[i]);
+      //Serial.print(float(pcmOut[i]>>1)/(2^15));
+      //Serial.print((uint16_t)pcmOut[i]);
+      //Serial.print(" ");
+      data = 
+      //Buffer[i] = 0;
+    }
+    Serial.println(data);
+    data = "";
+    delay(5);
     I2S.dataReady = false;
     I2S.read();
   }
