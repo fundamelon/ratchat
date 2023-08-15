@@ -1,10 +1,8 @@
-#include <I2S.h>
-#define ARM_MATH_CM4
-
-
-#include <arm_math.h>
-//#include "arm_common_tables.h"
-//#include <arm_const_structs.h>
+//#include <Arduino.h>
+#include "I2S.h"
+#include "SPI.h"
+#include <TFT_eSPI.h>              // Hardware-specific library
+TFT_eSPI tft = TFT_eSPI();         // Invoke custom library
 
 #include <stdio.h>
 #include <stdint.h>
@@ -14,11 +12,12 @@
 #include "table_fft.h"
 #include "cr4_fft_stm32.h"
 
-I2SClass I2S(SPI2, PB15 /*SD-DIN*/ , PB12 /*WS-LRC*/, PB13 /*CK-SCLK*/);
+//I2SClass I2S(SPI2, PB15 /*SD-DIN*/ , PB12 /*WS-LRC*/, PB13 /*CK-SCLK*/);
+I2SClass I2S(SPI2);
 
 #define SAMPLINGFREQUENCY 32000
 //program multiplies this by 32 to get PDM clock frequency
-#define NUMBEROFSAMPLES   1024 //64*8
+#define NUMBEROFSAMPLES   128 //64*8
 #define N_TAPS_FIR_DEC 37  // SINC4 DEC 10
 
 #define BYTE_LEFT_MSB 0
@@ -32,7 +31,10 @@ I2SClass I2S(SPI2, PB15 /*SD-DIN*/ , PB12 /*WS-LRC*/, PB13 /*CK-SCLK*/);
 #define DEC_OUT_FACTOR 8 //prev was 10
 #define FIR_DELAY 4
 #define DEC_CIC_FACTOR 4
-#define BITS_PER_SAMPLE 32
+#define BITS_PER_SAMPLE 16
+
+bool dmaDataReady = false;
+//bool dmaDataDone = true;
 
 #if BITS_PER_SAMPLE == 16
   int16_t Buffer[NUMBEROFSAMPLES];
@@ -47,6 +49,7 @@ I2SClass I2S(SPI2, PB15 /*SD-DIN*/ , PB12 /*WS-LRC*/, PB13 /*CK-SCLK*/);
   
 //uint16_t fftOutShift[NUMBEROFSAMPLES/DEC_CIC_FACTOR/2];
 
+/*
 static int16_t fir_taps[7][N_TAPS_FIR_DEC] = {{0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0},
   {7, 26, 66, 131, 229, 367, 551, 786, 1081, 1442, 1848, 2281, 2720, 3146, 3539, 3880, 4148, 4325, 4391, 4325, 4148, 3880, 3539, 3146, 2720, 2281, 1848, 1442, 1081, 786, 551, 367, 229, 131, 66, 26, 7},
   {13, 52, 131, 262, 459, 734, 1101, 1573, 2163, 2884, 3696, 4561, 5439, 6291, 7078, 7759, 8297, 8651, 8782, 8651, 8297, 7759, 7078, 6291, 5439, 4561, 3696, 2884, 2163, 1573, 1101, 734, 459, 262, 131, 52, 13},
@@ -61,8 +64,6 @@ int16_t data_out_decim[N_DATA_CIC_DEC / DEC_OUT_FACTOR];
 int16_t data_in_cic_decim[N_DATA_CIC_DEC];
 uint32_t delay_counter;
 int16_t delay_buf[FIR_DELAY];
-
-arm_rfft_instance_q15 varInstRfftQ15;
 
 int pdm2pcm_init(int bit_order, int endianess, int sinc){
   int ret_val = 0;
@@ -83,7 +84,7 @@ int pdm2pcm(uint8_t *data_in, int16_t *data_out, int16_t size)
 
   size_dec = size >> 3;
   LuT_Filter(data_in, data_in_cic_decim, size_dec);
-  // ****** Second cic-decim, high-pass iir and Group-delay compensation **********************//
+  // ****** Second cic-decim, high-pass iir and Group-delay compensation *********************
   //arm_fir_decimate_q15(&fir_decim_S, data_in_cic_decim, data_out_decim, (BLOCK_SIZE / DEC_CIC_FACTOR));
   //arm_fir_decimate_q15(&fir_decim_S, data_in, data_out_decim, (BLOCK_SIZE / DEC_CIC_FACTOR));
 
@@ -195,6 +196,7 @@ void LuT_Filter(uint8_t *PntIn, int16_t *PntOut, uint16_t LBlock)
 
   return;
 }
+*/
 
 uint16_t asqrt(uint32_t x) { //good enough precision, 10x faster than regular sqrt
   //
@@ -237,6 +239,20 @@ uint32_t perform_fft(uint32_t * indata, uint32_t * outdata, const int len) {
   inplace_magnitude(outdata, len);
 }
 
+extern "C" void HAL_I2S_RxCpltCallback(I2S_HandleTypeDef *hi2s) {
+  //I2S.dmaDone = true;
+  //I2S.dataReady = true;
+  //dmaDataDone = true;
+  dmaDataReady = true;
+  //int a = 5 + 13;
+}
+
+extern "C" void DMA1_Stream3_IRQHandler(void)
+{
+    HAL_DMA_IRQHandler(&I2S.dmaHandle);
+}
+
+
 
 void setup()
 {
@@ -244,17 +260,16 @@ void setup()
   Serial.println("Begin");
   //Serial.println((AUDIO_IN_FREQ * 1000) / AUDIO_IN_SAMPLING_FREQUENCY);
   //Serial.println(pdm2pcm_init(BYTE_LEFT_MSB, PDM_ENDIANNESS_BE, SINC4));
-  delay(1000);
-
+  delay(1000);  
 
   I2S.dmaSendSize=NUMBEROFSAMPLES;
 
-  I2S.begin(I2S_PCM_LONG_MODE, SAMPLINGFREQUENCY, BITS_PER_SAMPLE);
+  Serial.println(I2S.begin(I2S_LEFT_JUSTIFIED_MODE, SAMPLINGFREQUENCY, BITS_PER_SAMPLE));
   I2S.setBuffer(Buffer,NUMBEROFSAMPLES);
   delay(1000);
   I2S.read();
   Serial.println("Init OK");
-
+  Serial.println(HAL_I2S_GetState(&I2S.handle));
 }
 
 String data = "";
@@ -262,7 +277,9 @@ uint16_t movAvg = 0;
 
 void loop()
 {
-  if(I2S.dataReady = true){
+  Serial.println(HAL_I2S_GetState(&I2S.handle));
+  if(dmaDataReady){
+    Serial.println("flag");
     movAvg = 0;
     for(int i = 0; i<NUMBEROFSAMPLES;i++){
       for (int j = 0;  j < BITS_PER_SAMPLE;  ++j){

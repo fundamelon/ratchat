@@ -8,6 +8,12 @@
         "vector": "cpp",
         "string_view": "cpp",
         "initializer_list": "cpp",
-        "*.tcc": "cpp"
+        "*.tcc": "cpp",
+        "arm_rfft_init_q15.c": "cpp",
+        "stm32_gpio_variant_2.h": "c",
+        "stm32_remap_variant_1.h": "c",
+        "stm32_i2s_variant_21.h": "c",
+        "stm32_gpio.h": "c",
+        "stdbool.h": "c"
     }
 }

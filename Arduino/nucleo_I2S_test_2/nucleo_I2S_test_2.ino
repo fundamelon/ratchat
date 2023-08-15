@@ -1,10 +1,8 @@
-#include <I2S.h>
+#include "I2S.h"
 #define ARM_MATH_CM4
-
-
-#include <arm_math.h>
-//#include "arm_common_tables.h"
-//#include <arm_const_structs.h>
+#include "SPI.h"
+#include <TFT_eSPI.h>              // Hardware-specific library
+TFT_eSPI tft = TFT_eSPI();         // Invoke custom library
 
 #include <stdio.h>
 #include <stdint.h>
@@ -14,6 +12,7 @@
 #include "table_fft.h"
 #include "cr4_fft_stm32.h"
 
+//I2SClass I2S(SPI2, PB15 /*SD-DIN*/ , PB12 /*WS-LRC*/, PB13 /*CK-SCLK*/);
 I2SClass I2S(SPI2, PB15 /*SD-DIN*/ , PB12 /*WS-LRC*/, PB13 /*CK-SCLK*/);
 
 #define SAMPLINGFREQUENCY 32000
@@ -61,8 +60,6 @@ int16_t data_out_decim[N_DATA_CIC_DEC / DEC_OUT_FACTOR];
 int16_t data_in_cic_decim[N_DATA_CIC_DEC];
 uint32_t delay_counter;
 int16_t delay_buf[FIR_DELAY];
-
-arm_rfft_instance_q15 varInstRfftQ15;
 
 int pdm2pcm_init(int bit_order, int endianess, int sinc){
   int ret_val = 0;
@@ -246,6 +243,9 @@ void setup()
   //Serial.println(pdm2pcm_init(BYTE_LEFT_MSB, PDM_ENDIANNESS_BE, SINC4));
   delay(1000);
 
+  tft.begin();
+  tft.setTextColor(TFT_WHITE, TFT_BLACK);
+  tft.fillScreen(TFT_BLUE);
 
   I2S.dmaSendSize=NUMBEROFSAMPLES;
 
